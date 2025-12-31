@@ -102,8 +102,21 @@ async function sendHeartbeat(time) {
     };
     const machine = settings.store.machineName;
     if (machine) headers['X-Machine-Name'] = machine;
-    // Use try/catch to handle fetch errors (CSP will throw here).
+    // First try navigator.sendBeacon (best-effort, may bypass some limitations)
     try {
+        if (typeof navigator !== 'undefined' && typeof (navigator as any).sendBeacon === 'function') {
+            try {
+                const blob = new Blob([body], { type: 'application/json' });
+                const beaconOk = (navigator as any).sendBeacon(url, blob);
+                if (beaconOk) {
+                    if (settings.store.debug) console.log('WakaTime: sendBeacon succeeded');
+                    return;
+                }
+            } catch (e) {
+                if (settings.store.debug) console.warn('WakaTime: sendBeacon failed', e);
+            }
+        }
+
         const response = await fetch(url, {
             method: 'POST',
             body: body,
@@ -116,10 +129,10 @@ async function sendHeartbeat(time) {
         // If the fetch failed due to CSP or other network restrictions, show a helpful notification
         showNotification({
             title: 'WakaTime',
-            body: 'Failed to send heartbeat — request blocked by Content Security Policy or network error. Click to open a copyable curl fallback.',
+            body: 'Failed to send heartbeat — request blocked by Content Security Policy or network error. Click to open copyable fallback commands.',
             color: 'var(--red-360)',
             onClick: () => {
-                const curl = buildCurlFallback(url, body, headers);
+                const fallback = buildFallbackCommands(url, body, headers);
                 openModal(modalProps => (
                     <ModalRoot {...modalProps}>
                         <ModalHeader>
@@ -127,7 +140,8 @@ async function sendHeartbeat(time) {
                         </ModalHeader>
                         <ModalContent>
                             <Forms.FormText style={{ padding: '5px' }}>
-                                <TextArea value={curl} onChange={() => {}} />
+                                <div style={{ marginBottom: 8 }}>Try one of the commands below on your machine. On Windows use <strong>curl.exe</strong> or PowerShell.</div>
+                                <TextArea value={fallback} onChange={() => {}} />
                             </Forms.FormText>
                         </ModalContent>
                         <ModalFooter>
@@ -136,8 +150,8 @@ async function sendHeartbeat(time) {
                                 look={Button.Looks.OUTLINED}
                                 onClick={() => {
                                     try {
-                                        navigator.clipboard.writeText(curl);
-                                        showNotification({ title: 'WakaTime', body: 'Copied curl command to clipboard.' });
+                                        navigator.clipboard.writeText(fallback);
+                                        showNotification({ title: 'WakaTime', body: 'Copied fallback commands to clipboard.' });
                                     } catch (e) {
                                         showNotification({ title: 'WakaTime', body: 'Could not copy to clipboard.' });
                                     }
@@ -160,15 +174,38 @@ async function sendHeartbeat(time) {
     }
 }
 
-function buildCurlFallback(url: string, body: string, headers: Record<string, string>) {
-    const auth = headers.Authorization ? headers.Authorization : '';
-    // Build header flags
-    const headerFlags = Object.entries(headers)
+function buildFallbackCommands(url: string, body: string, headers: Record<string, string>) {
+    // Build POSIX curl
+    const headerFlagsPosix = Object.entries(headers)
         .map(([k, v]) => `-H '${k}: ${v}'`)
         .join(' ');
-    // Compact body for shell
-    const safeBody = body.replace(/'/g, "'\\''");
-    return `curl -X POST '${url}' ${headerFlags} --data '${safeBody}'`;
+    const safeBodyPosix = body.replace(/'/g, "'\\''");
+    const curlPosix = `curl -X POST '${url}' ${headerFlagsPosix} --data '${safeBodyPosix}'`;
+
+    // Windows curl.exe (use curl.exe to avoid PowerShell alias)
+    const headerFlagsWin = Object.entries(headers)
+        .map(([k, v]) => `-H "${k}: ${v.replace(/"/g, '\\"')}"`)
+        .join(' ');
+    const curlWin = `curl.exe -X POST "${url}" ${headerFlagsWin} --data '${body.replace(/'/g, "'\\''")}'`;
+
+    // PowerShell Invoke-RestMethod
+    const psBody = body.replace(/'/g, "''");
+    const ps = `powershell -Command "Invoke-RestMethod -Uri '${url}' -Method Post -Headers @{
+${Object.entries(headers).map(([k, v]) => `    '${k}'='${v.replace(/'/g, "'\''")}';`).join('\n')}
+} -Body '${psBody}' -ContentType 'application/json'"`;
+
+    return [
+        'POSIX / WSL / Git Bash (Linux/macOS):',
+        curlPosix,
+        '',
+        'Windows (cmd) using curl.exe:',
+        curlWin,
+        '',
+        'PowerShell (native):',
+        ps,
+        '',
+        'If these fail due to the same CSP/network restrictions, run a local proxy (e.g., on localhost) and point the plugin to it, or run the command on your machine outside of Discord.'
+    ].join('\n');
 }
 
 async function handleAction() {
