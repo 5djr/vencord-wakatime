@@ -117,7 +117,6 @@ async function sendHeartbeat(time) {
     };
     const machine = settings.store.machineName;
     if (machine) headers['X-Machine-Name'] = machine;
-    // If a local proxy is configured, try sending to it first. Many Discord CSPs allow localhost/127.0.0.1.
     const proxyUrl = (settings.store.proxyUrl || '').trim();
     if (proxyUrl) {
         try {
@@ -135,10 +134,8 @@ async function sendHeartbeat(time) {
             console.warn(`WakaTime proxy error ${proxyResp.status}: ${proxyText}`);
         } catch (e) {
             if (settings.store.debug) console.warn('WakaTime: proxy request failed, falling back', e);
-            // fall through to sendBeacon/fetch
         }
     }
-    // First try navigator.sendBeacon (best-effort, may bypass some limitations)
     try {
         if (typeof navigator !== 'undefined' && typeof (navigator as any).sendBeacon === 'function') {
             try {
@@ -162,7 +159,6 @@ async function sendHeartbeat(time) {
         if (response.status < 200 || response.status >= 300) console.warn(`WakaTime API Error ${response.status}: ${data}`);
     } catch (err: any) {
         console.warn('WakaTime: heartbeat failed', err);
-        // If the fetch failed due to CSP or other network restrictions, show a helpful notification
         showNotification({
             title: 'WakaTime',
             body: 'Failed to send heartbeat — request blocked by Content Security Policy or network error. Click to open copyable fallback commands.',
@@ -211,20 +207,17 @@ async function sendHeartbeat(time) {
 }
 
 function buildFallbackCommands(url: string, body: string, headers: Record<string, string>) {
-    // Build POSIX curl
     const headerFlagsPosix = Object.entries(headers)
         .map(([k, v]) => `-H '${k}: ${v}'`)
         .join(' ');
     const safeBodyPosix = body.replace(/'/g, "'\\''");
     const curlPosix = `curl -X POST '${url}' ${headerFlagsPosix} --data '${safeBodyPosix}'`;
 
-    // Windows curl.exe (use curl.exe to avoid PowerShell alias)
     const headerFlagsWin = Object.entries(headers)
         .map(([k, v]) => `-H "${k}: ${v.replace(/"/g, '\\"')}"`)
         .join(' ');
     const curlWin = `curl.exe -X POST "${url}" ${headerFlagsWin} --data '${body.replace(/'/g, "'\\''")}'`;
 
-    // PowerShell Invoke-RestMethod
     const psBody = body.replace(/'/g, "''");
     const ps = `powershell -Command "Invoke-RestMethod -Uri '${url}' -Method Post -Headers @{
 ${Object.entries(headers).map(([k, v]) => `    '${k}'='${v.replace(/'/g, "'\''")}';`).join('\n')}
@@ -250,7 +243,6 @@ function startEmbeddedProxyIfPossible(portStr: string | number, pluginThis: any)
     const port = typeof portStr === 'number' ? portStr : parseInt(String(portStr || '9525'), 10) || 9525;
     if (_embeddedProxyServer) return;
 
-    // Try to access Node's require (may be exposed in Electron/renderer environments)
     const nodeRequire = (typeof window !== 'undefined' && (window as any).require) || (typeof global !== 'undefined' && (global as any).require) || undefined;
     if (!nodeRequire) {
         showNotification({ title: 'WakaTime', body: 'Cannot auto-start proxy: Node integration unavailable.' });
@@ -278,7 +270,6 @@ function startEmbeddedProxyIfPossible(portStr: string | number, pluginThis: any)
             req.on('data', (c: any) => chunks.push(c));
             req.on('end', () => {
                 const body = Buffer.concat(chunks);
-                // Forward to WakaTime
                 const opts = {
                     method: 'POST',
                     hostname: 'api.wakatime.com',
@@ -312,7 +303,6 @@ function startEmbeddedProxyIfPossible(portStr: string | number, pluginThis: any)
             _embeddedProxyServer = server;
             const proxyUrl = `http://127.0.0.1:${port}/heartbeat`;
             try {
-                // Attempt to set plugin setting so plugin will use it automatically
                 if (pluginThis && pluginThis.settings && pluginThis.settings.store) {
                     pluginThis.settings.store.proxyUrl = proxyUrl;
                 }
@@ -351,9 +341,12 @@ export default definePlugin({
             id: 566766267046821888n,
             name: 'Neon',
         },
+        {
+            id: 1377378882692448427n,
+            name: 'Tym',
+        },
     ],
     settings,
-    // It might be likely you could delete these and go make patches above!
     start() {
         console.log('Initializing WakaTime plugin v');
         // if (readSetting(this.homeDirectory() + '/.wakatime.cfg', 'settings', 'debug') == 'true') {
@@ -362,7 +355,6 @@ export default definePlugin({
         // }
         this.handler = handleAction.bind(this);
         document.addEventListener('click', this.handler);
-        // Try to auto-start embedded proxy if configured
         try {
             if (settings.store.proxyAutoStart) {
                 startEmbeddedProxyIfPossible(settings.store.proxyPort || '9525', this);
