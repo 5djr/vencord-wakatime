@@ -102,13 +102,73 @@ async function sendHeartbeat(time) {
     };
     const machine = settings.store.machineName;
     if (machine) headers['X-Machine-Name'] = machine;
-    const response = await fetch(url, {
-        method: 'POST',
-        body: body,
-        headers: headers,
-    });
-    const data = await response.text();
-    if (response.status < 200 || response.status >= 300) console.warn(`WakaTime API Error ${response.status}: ${data}`);
+    // Use try/catch to handle fetch errors (CSP will throw here).
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            body: body,
+            headers: headers,
+        });
+        const data = await response.text();
+        if (response.status < 200 || response.status >= 300) console.warn(`WakaTime API Error ${response.status}: ${data}`);
+    } catch (err: any) {
+        console.warn('WakaTime: heartbeat failed', err);
+        // If the fetch failed due to CSP or other network restrictions, show a helpful notification
+        showNotification({
+            title: 'WakaTime',
+            body: 'Failed to send heartbeat — request blocked by Content Security Policy or network error. Click to open a copyable curl fallback.',
+            color: 'var(--red-360)',
+            onClick: () => {
+                const curl = buildCurlFallback(url, body, headers);
+                openModal(modalProps => (
+                    <ModalRoot {...modalProps}>
+                        <ModalHeader>
+                            <Forms.FormTitle tag="h4">WakaTime Heartbeat (Fallback)</Forms.FormTitle>
+                        </ModalHeader>
+                        <ModalContent>
+                            <Forms.FormText style={{ padding: '5px' }}>
+                                <TextArea value={curl} onChange={() => {}} />
+                            </Forms.FormText>
+                        </ModalContent>
+                        <ModalFooter>
+                            <Button
+                                color={Button.Colors.GREY}
+                                look={Button.Looks.OUTLINED}
+                                onClick={() => {
+                                    try {
+                                        navigator.clipboard.writeText(curl);
+                                        showNotification({ title: 'WakaTime', body: 'Copied curl command to clipboard.' });
+                                    } catch (e) {
+                                        showNotification({ title: 'WakaTime', body: 'Could not copy to clipboard.' });
+                                    }
+                                }}
+                            >
+                                Copy
+                            </Button>
+                            <Button
+                                color={Button.Colors.RED}
+                                look={Button.Looks.OUTLINED}
+                                onClick={() => modalProps.onClose()}
+                            >
+                                Close
+                            </Button>
+                        </ModalFooter>
+                    </ModalRoot>
+                ));
+            },
+        });
+    }
+}
+
+function buildCurlFallback(url: string, body: string, headers: Record<string, string>) {
+    const auth = headers.Authorization ? headers.Authorization : '';
+    // Build header flags
+    const headerFlags = Object.entries(headers)
+        .map(([k, v]) => `-H '${k}: ${v}'`)
+        .join(' ');
+    // Compact body for shell
+    const safeBody = body.replace(/'/g, "'\\''");
+    return `curl -X POST '${url}' ${headerFlags} --data '${safeBody}'`;
 }
 
 async function handleAction() {
