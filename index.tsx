@@ -38,6 +38,21 @@ const settings = definePluginSettings({
         description: "Project Name",
         default: "Discord",
     },
+    proxyUrl: {
+        type: OptionType.STRING,
+        description: "Optional local proxy URL (e.g. http://127.0.0.1:9524/heartbeat) — useful when Discord's CSP blocks direct requests.",
+        default: '',
+    },
+        proxyAutoStart: {
+            type: OptionType.BOOLEAN,
+            description: 'Automatically start an embedded local proxy (requires Node integration).',
+            default: true,
+        },
+        proxyPort: {
+            type: OptionType.STRING,
+            description: 'Port for embedded proxy (127.0.0.1).',
+            default: '9525',
+        },
 });
 
 function enoughTimePassed() {
@@ -102,6 +117,27 @@ async function sendHeartbeat(time) {
     };
     const machine = settings.store.machineName;
     if (machine) headers['X-Machine-Name'] = machine;
+    // If a local proxy is configured, try sending to it first. Many Discord CSPs allow localhost/127.0.0.1.
+    const proxyUrl = (settings.store.proxyUrl || '').trim();
+    if (proxyUrl) {
+        try {
+            if (settings.store.debug) console.log('WakaTime: sending heartbeat to proxy', proxyUrl);
+            const proxyResp = await fetch(proxyUrl, {
+                method: 'POST',
+                body: body,
+                headers: headers,
+            });
+            const proxyText = await proxyResp.text();
+            if (proxyResp.status >= 200 && proxyResp.status < 300) {
+                if (settings.store.debug) console.log('WakaTime: proxy delivered heartbeat');
+                return;
+            }
+            console.warn(`WakaTime proxy error ${proxyResp.status}: ${proxyText}`);
+        } catch (e) {
+            if (settings.store.debug) console.warn('WakaTime: proxy request failed, falling back', e);
+            // fall through to sendBeacon/fetch
+        }
+    }
     // First try navigator.sendBeacon (best-effort, may bypass some limitations)
     try {
         if (typeof navigator !== 'undefined' && typeof (navigator as any).sendBeacon === 'function') {
@@ -208,6 +244,98 @@ ${Object.entries(headers).map(([k, v]) => `    '${k}'='${v.replace(/'/g, "'\''")
     ].join('\n');
 }
 
+let _embeddedProxyServer: any = null;
+
+function startEmbeddedProxyIfPossible(portStr: string | number, pluginThis: any) {
+    const port = typeof portStr === 'number' ? portStr : parseInt(String(portStr || '9525'), 10) || 9525;
+    if (_embeddedProxyServer) return;
+
+    // Try to access Node's require (may be exposed in Electron/renderer environments)
+    const nodeRequire = (typeof window !== 'undefined' && (window as any).require) || (typeof global !== 'undefined' && (global as any).require) || undefined;
+    if (!nodeRequire) {
+        showNotification({ title: 'WakaTime', body: 'Cannot auto-start proxy: Node integration unavailable.' });
+        return;
+    }
+
+    let http: any, https: any;
+    try {
+        http = nodeRequire('http');
+        https = nodeRequire('https');
+    } catch (e) {
+        showNotification({ title: 'WakaTime', body: 'Cannot auto-start proxy: http/https modules not available.' });
+        return;
+    }
+
+    try {
+        const server = http.createServer((req: any, res: any) => {
+            if (req.method !== 'POST' || !req.url || !req.url.startsWith('/heartbeat')) {
+                res.writeHead(404);
+                res.end('Not found');
+                return;
+            }
+
+            const chunks: any[] = [];
+            req.on('data', (c: any) => chunks.push(c));
+            req.on('end', () => {
+                const body = Buffer.concat(chunks);
+                // Forward to WakaTime
+                const opts = {
+                    method: 'POST',
+                    hostname: 'api.wakatime.com',
+                    path: '/api/v1/users/current/heartbeats',
+                    headers: {
+                        'Content-Type': req.headers['content-type'] || 'application/json',
+                        Authorization: req.headers['authorization'] || '',
+                        'X-Machine-Name': req.headers['x-machine-name'] || '',
+                    },
+                };
+
+                const out = https.request(opts, (r: any) => {
+                    const outChunks: any[] = [];
+                    r.on('data', (d: any) => outChunks.push(d));
+                    r.on('end', () => {
+                        const buf = Buffer.concat(outChunks);
+                        res.writeHead(r.statusCode || 200, { 'Content-Type': 'text/plain' });
+                        res.end(buf);
+                    });
+                });
+                out.on('error', (err: any) => {
+                    res.writeHead(500);
+                    res.end(String(err));
+                });
+                out.write(body);
+                out.end();
+            });
+        });
+
+        server.listen(port, '127.0.0.1', () => {
+            _embeddedProxyServer = server;
+            const proxyUrl = `http://127.0.0.1:${port}/heartbeat`;
+            try {
+                // Attempt to set plugin setting so plugin will use it automatically
+                if (pluginThis && pluginThis.settings && pluginThis.settings.store) {
+                    pluginThis.settings.store.proxyUrl = proxyUrl;
+                }
+            } catch (_) {}
+            showNotification({ title: 'WakaTime', body: `Embedded proxy listening at ${proxyUrl}` });
+        });
+    } catch (err) {
+        showNotification({ title: 'WakaTime', body: 'Failed to start embedded proxy.' });
+        console.warn('WakaTime: failed to start embedded proxy', err);
+    }
+}
+
+function stopEmbeddedProxy() {
+    try {
+        if (_embeddedProxyServer) {
+            _embeddedProxyServer.close();
+            _embeddedProxyServer = null;
+        }
+    } catch (e) {
+        console.warn('WakaTime: error stopping embedded proxy', e);
+    }
+}
+
 async function handleAction() {
     const time = Date.now();
     if (!enoughTimePassed()) return;
@@ -234,9 +362,18 @@ export default definePlugin({
         // }
         this.handler = handleAction.bind(this);
         document.addEventListener('click', this.handler);
+        // Try to auto-start embedded proxy if configured
+        try {
+            if (settings.store.proxyAutoStart) {
+                startEmbeddedProxyIfPossible(settings.store.proxyPort || '9525', this);
+            }
+        } catch (e) {
+            console.warn('WakaTime: failed to auto-start embedded proxy', e);
+        }
     },
     stop() {
         console.log('Unloading WakaTime plugin');
         document.removeEventListener('click', this.handler);
+        stopEmbeddedProxy();
     },
 });
