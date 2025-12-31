@@ -15,7 +15,7 @@ let lastHeartbeatAt = 0;
 const settings = definePluginSettings({
     apiKey: {
         type: OptionType.STRING,
-        description: 'API Key for wakatime',
+        description: 'API Key for Wakatime',
         default: 'CHANGEME',
         isValid: (e: string) => {
             if (e === "CHANGEME") return "Invalid Key: Please change the default API Key";
@@ -63,8 +63,8 @@ async function sendHeartbeat(time) {
     const key = settings.store.apiKey;
     if (!key || key === 'CHANGEME') {
         showNotification({
-            title: "WakaTime",
-            body: "No api key for wakatime is setup.",
+            title: "Wakatime",
+            body: "No api key for Wakatime is setup.",
             color: "var(--red-360)",
             // onClick: () => {
             //     openModal(modalProps => (
@@ -99,7 +99,7 @@ async function sendHeartbeat(time) {
         return;
     }
     if (settings.store.debug) {
-        console.log('Sending heartbeat to WakaTime API.');
+        console.log('Sending heartbeat to Wakatime API.');
     }
 
     const url = 'https://api.wakatime.com/api/v1/users/current/heartbeats';
@@ -120,7 +120,7 @@ async function sendHeartbeat(time) {
     const proxyUrl = (settings.store.proxyUrl || '').trim();
     if (proxyUrl) {
         try {
-            if (settings.store.debug) console.log('WakaTime: sending heartbeat to proxy', proxyUrl);
+            if (settings.store.debug) console.log('Wakatime: sending heartbeat to proxy', proxyUrl);
             const proxyResp = await fetch(proxyUrl, {
                 method: 'POST',
                 body: body,
@@ -128,12 +128,12 @@ async function sendHeartbeat(time) {
             });
             const proxyText = await proxyResp.text();
             if (proxyResp.status >= 200 && proxyResp.status < 300) {
-                if (settings.store.debug) console.log('WakaTime: proxy delivered heartbeat');
+                if (settings.store.debug) console.log('Wakatime: proxy delivered heartbeat');
                 return;
             }
-            console.warn(`WakaTime proxy error ${proxyResp.status}: ${proxyText}`);
+            console.warn(`Wakatime proxy error ${proxyResp.status}: ${proxyText}`);
         } catch (e) {
-            if (settings.store.debug) console.warn('WakaTime: proxy request failed, falling back', e);
+            if (settings.store.debug) console.warn('Wakatime: proxy request failed, falling back', e);
         }
     }
     try {
@@ -142,11 +142,11 @@ async function sendHeartbeat(time) {
                 const blob = new Blob([body], { type: 'application/json' });
                 const beaconOk = (navigator as any).sendBeacon(url, blob);
                 if (beaconOk) {
-                    if (settings.store.debug) console.log('WakaTime: sendBeacon succeeded');
+                    if (settings.store.debug) console.log('Wakatime: sendBeacon succeeded');
                     return;
                 }
             } catch (e) {
-                if (settings.store.debug) console.warn('WakaTime: sendBeacon failed', e);
+                if (settings.store.debug) console.warn('Wakatime: sendBeacon failed', e);
             }
         }
 
@@ -156,11 +156,11 @@ async function sendHeartbeat(time) {
             headers: headers,
         });
         const data = await response.text();
-        if (response.status < 200 || response.status >= 300) console.warn(`WakaTime API Error ${response.status}: ${data}`);
+        if (response.status < 200 || response.status >= 300) console.warn(`Wakatime API Error ${response.status}: ${data}`);
     } catch (err: any) {
-        console.warn('WakaTime: heartbeat failed', err);
+        console.warn('Wakatime: heartbeat failed', err);
         showNotification({
-            title: 'WakaTime',
+            title: 'Wakatime',
             body: 'Failed to send heartbeat — request blocked by Content Security Policy or network error. Click to open copyable fallback commands.',
             color: 'var(--red-360)',
             onClick: () => {
@@ -168,7 +168,7 @@ async function sendHeartbeat(time) {
                 openModal(modalProps => (
                     <ModalRoot {...modalProps}>
                         <ModalHeader>
-                            <Forms.FormTitle tag="h4">WakaTime Heartbeat (Fallback)</Forms.FormTitle>
+                            <Forms.FormTitle tag="h4">Wakatime Heartbeat (Fallback)</Forms.FormTitle>
                         </ModalHeader>
                         <ModalContent>
                             <Forms.FormText style={{ padding: '5px' }}>
@@ -183,9 +183,9 @@ async function sendHeartbeat(time) {
                                 onClick={() => {
                                     try {
                                         navigator.clipboard.writeText(fallback);
-                                        showNotification({ title: 'WakaTime', body: 'Copied fallback commands to clipboard.' });
+                                        showNotification({ title: 'Wakatime', body: 'Copied fallback commands to clipboard.' });
                                     } catch (e) {
-                                        showNotification({ title: 'WakaTime', body: 'Could not copy to clipboard.' });
+                                        showNotification({ title: 'Wakatime', body: 'Could not copy to clipboard.' });
                                     }
                                 }}
                             >
@@ -245,7 +245,7 @@ function startEmbeddedProxyIfPossible(portStr: string | number, pluginThis: any)
 
     const nodeRequire = (typeof window !== 'undefined' && (window as any).require) || (typeof global !== 'undefined' && (global as any).require) || undefined;
     if (!nodeRequire) {
-        showNotification({ title: 'WakaTime', body: 'Cannot auto-start proxy: Node integration unavailable.' });
+        showNotification({ title: 'Wakatime', body: 'Cannot auto-start proxy: Node integration unavailable.' });
         return;
     }
 
@@ -254,7 +254,7 @@ function startEmbeddedProxyIfPossible(portStr: string | number, pluginThis: any)
         http = nodeRequire('http');
         https = nodeRequire('https');
     } catch (e) {
-        showNotification({ title: 'WakaTime', body: 'Cannot auto-start proxy: http/https modules not available.' });
+        showNotification({ title: 'Wakatime', body: 'Cannot auto-start proxy: http/https modules not available.' });
         return;
     }
 
@@ -307,11 +307,11 @@ function startEmbeddedProxyIfPossible(portStr: string | number, pluginThis: any)
                     pluginThis.settings.store.proxyUrl = proxyUrl;
                 }
             } catch (_) {}
-            showNotification({ title: 'WakaTime', body: `Embedded proxy listening at ${proxyUrl}` });
+            showNotification({ title: 'Wakatime', body: `Embedded proxy listening at ${proxyUrl}` });
         });
     } catch (err) {
-        showNotification({ title: 'WakaTime', body: 'Failed to start embedded proxy.' });
-        console.warn('WakaTime: failed to start embedded proxy', err);
+        showNotification({ title: 'Wakatime', body: 'Failed to start embedded proxy.' });
+        console.warn('Wakatime: failed to start embedded proxy', err);
     }
 }
 
@@ -322,7 +322,7 @@ function stopEmbeddedProxy() {
             _embeddedProxyServer = null;
         }
     } catch (e) {
-        console.warn('WakaTime: error stopping embedded proxy', e);
+        console.warn('Wakatime: error stopping embedded proxy', e);
     }
 }
 
@@ -334,7 +334,7 @@ async function handleAction() {
 }
 
 export default definePlugin({
-    name: 'wakatime',
+    name: 'Wakatime',
     description: 'Wakatime plugin',
     authors: [
         {
@@ -348,10 +348,10 @@ export default definePlugin({
     ],
     settings,
     start() {
-        console.log('Initializing WakaTime plugin v');
+        console.log('Initializing Wakatime plugin v');
         // if (readSetting(this.homeDirectory() + '/.wakatime.cfg', 'settings', 'debug') == 'true') {
         //   this.debug = true;
-        //   console.log('WakaTime debug mode enabled');
+        //   console.log('Wakatime debug mode enabled');
         // }
         this.handler = handleAction.bind(this);
         document.addEventListener('click', this.handler);
@@ -360,11 +360,11 @@ export default definePlugin({
                 startEmbeddedProxyIfPossible(settings.store.proxyPort || '9525', this);
             }
         } catch (e) {
-            console.warn('WakaTime: failed to auto-start embedded proxy', e);
+            console.warn('Wakatime: failed to auto-start embedded proxy', e);
         }
     },
     stop() {
-        console.log('Unloading WakaTime plugin');
+        console.log('Unloading Wakatime plugin');
         document.removeEventListener('click', this.handler);
         stopEmbeddedProxy();
     },
